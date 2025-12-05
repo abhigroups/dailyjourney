@@ -1,11 +1,12 @@
 
-import { JournalEntry, PatternAnalysis, LifeJourneyAnalysis } from '../types';
+import { JournalEntry, PatternAnalysis, LifeJourneyAnalysis, DailyGuidance } from '../types';
 import JSZip from 'jszip';
 import { getMediaBlob, saveMediaBlob } from './db';
 
 const STORAGE_KEY = 'lumina_journal_entries';
 const ANALYSIS_KEY = 'lumina_pattern_analysis';
 const JOURNEY_REPORT_KEY = 'lumina_journey_report';
+const GUIDANCE_KEY = 'lumina_daily_guidance';
 const DRAFT_KEY = 'lumina_current_draft';
 
 export const saveEntry = (entry: JournalEntry): void => {
@@ -62,6 +63,19 @@ export const getLifeJourneyAnalysis = (): LifeJourneyAnalysis | null => {
   }
 };
 
+export const saveDailyGuidance = (guidance: DailyGuidance): void => {
+  localStorage.setItem(GUIDANCE_KEY, JSON.stringify(guidance));
+};
+
+export const getDailyGuidance = (): DailyGuidance | null => {
+  try {
+    const data = localStorage.getItem(GUIDANCE_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
 // --- Auto-Save / Draft Features ---
 
 export const saveDraft = (content: string, entryId?: string): void => {
@@ -98,7 +112,8 @@ export const exportFullBackup = async (): Promise<Blob> => {
     exportedAt: new Date().toISOString(),
     entries,
     analysis: getPatternAnalysis(),
-    journeyReport: getLifeJourneyAnalysis()
+    journeyReport: getLifeJourneyAnalysis(),
+    dailyGuidance: getDailyGuidance()
   };
   zip.file("journal_data.json", JSON.stringify(dataObject, null, 2));
 
@@ -150,6 +165,7 @@ export const importFullBackup = async (zipFile: File): Promise<boolean> => {
     if (data.entries) localStorage.setItem(STORAGE_KEY, JSON.stringify(data.entries));
     if (data.analysis) localStorage.setItem(ANALYSIS_KEY, JSON.stringify(data.analysis));
     if (data.journeyReport) localStorage.setItem(JOURNEY_REPORT_KEY, JSON.stringify(data.journeyReport));
+    if (data.dailyGuidance) localStorage.setItem(GUIDANCE_KEY, JSON.stringify(data.dailyGuidance));
 
     // 3. Restore Media to IndexedDB
     const mediaFolder = zip.folder("media");

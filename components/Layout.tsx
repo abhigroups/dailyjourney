@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { Book, BarChart2, PlusCircle, Settings, Feather, Sparkles } from 'lucide-react';
+import { Book, BarChart2, PlusCircle, Settings, Feather, Sparkles, Compass } from 'lucide-react';
 import { ViewMode } from '../types';
 
 interface LayoutProps {
@@ -13,6 +14,7 @@ const Layout: React.FC<LayoutProps> = ({ currentView, setView, children }) => {
     { id: ViewMode.WRITE, label: 'Write', icon: PlusCircle },
     { id: ViewMode.LIST, label: 'Journal', icon: Book },
     { id: ViewMode.ANALYTICS, label: 'Insights', icon: BarChart2 },
+    { id: ViewMode.GUIDANCE, label: 'Guidance', icon: Compass },
     { id: ViewMode.SETTINGS, label: 'Settings', icon: Settings },
   ];
 

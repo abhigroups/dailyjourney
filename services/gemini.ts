@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { JournalEntry, PatternAnalysis, LifeJourneyAnalysis } from "../types";
+import { JournalEntry, PatternAnalysis, LifeJourneyAnalysis, DailyGuidance } from "../types";
 
 const getClient = () => {
     const apiKey = process.env.API_KEY || '';
@@ -218,6 +218,50 @@ export const findSimilarConnections = async (currentEntry: string, pastEntries: 
         return "Unable to analyze connections at this time.";
     }
 }
+
+// --- Guidance & Action Plan ---
+
+export const generateDailyGuidance = async (entries: JournalEntry[]): Promise<DailyGuidance> => {
+    const ai = getClient();
+    const recentContext = entries.slice(0, 30).map(e => `[${e.createdAt.split('T')[0]}]: ${e.content}`).join("\n\n");
+    
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Based on these recent journal entries:\n${recentContext}\n
+            Generate a daily guidance plan for today.
+            1. "focusArea": The one main thing they should focus on today based on past patterns.
+            2. "todoSuggestions": 3-5 specific, small actionable tasks they can do TODAY to improve their situation or achieve past goals.
+            3. "improvementTips": 2-3 specific behavioral tips to overcome recent challenges.
+            4. "positiveReflection": A specific memory or quality from the past entries to remind them of their strength.
+            5. "reasoning": A brief explanation of why you suggested these things.
+            `,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        focusArea: { type: Type.STRING },
+                        todoSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        improvementTips: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        positiveReflection: { type: Type.STRING },
+                        reasoning: { type: Type.STRING }
+                    },
+                    required: ["focusArea", "todoSuggestions", "improvementTips", "positiveReflection", "reasoning"]
+                }
+            }
+        });
+
+        const result = JSON.parse(response.text || "{}");
+        return {
+            timestamp: new Date().toISOString(),
+            ...result
+        };
+    } catch (e) {
+        console.error("Guidance Generation Error", e);
+        throw e;
+    }
+};
 
 // --- Media Generation Features ---
 

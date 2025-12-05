@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, Wand2, RefreshCw, Sparkles, Lightbulb, Link2, Cloud, CheckCircle2, Image as ImageIcon, Video, PenTool, Youtube, Download, Loader2, Trash2, Mic, Square, Play, Pause, FileText, Music, ExternalLink, Upload } from 'lucide-react';
-import { JournalEntry, JournalMedia } from '../types';
+import { Save, Wand2, RefreshCw, Sparkles, Lightbulb, Link2, Cloud, CheckCircle2, Image as ImageIcon, Video, PenTool, Youtube, Download, Loader2, Trash2, Mic, Square, Play, Pause, FileText, Music, ExternalLink, Upload, ListTodo, CalendarClock, Plus, X } from 'lucide-react';
+import { JournalEntry, JournalMedia, TodoItem, ScheduleBlock } from '../types';
 import { analyzeEntryWithGemini, findSimilarConnections, generateJournalImage, generateJournalVideo, transcribeAudio, generatePositiveReflection } from '../services/gemini';
 import { getEntries, saveDraft, getDraft, clearDraft } from '../services/storage';
 import { saveMediaBlob, getMediaBlob, blobToBase64 } from '../services/db';
@@ -24,15 +24,24 @@ const PROMPTS = [
 interface EntryEditorProps {
   onSave: (entry: JournalEntry) => void;
   initialEntry?: JournalEntry | null;
+  initialTodos?: TodoItem[]; // For passing suggestions from Guidance
 }
 
-const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
+const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry, initialTodos }) => {
+  const [activeTab, setActiveTab] = useState<'write' | 'plan'>('write');
   const [content, setContent] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<Partial<JournalEntry> | null>(null);
   const [similarConnection, setSimilarConnection] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'idle'>('idle');
   
+  // Planner State
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [schedule, setSchedule] = useState<ScheduleBlock[]>([]);
+  const [newTodo, setNewTodo] = useState('');
+  const [newScheduleTime, setNewScheduleTime] = useState('08:00');
+  const [newScheduleActivity, setNewScheduleActivity] = useState('');
+
   // Media State
   const [showDrawing, setShowDrawing] = useState(false);
   const [mediaItems, setMediaItems] = useState<JournalMedia[]>([]);
@@ -90,6 +99,8 @@ const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
                 }
             });
         }
+        if (initialEntry.todos) setTodos(initialEntry.todos);
+        if (initialEntry.schedule) setSchedule(initialEntry.schedule);
     } else {
         const draft = getDraft();
         if (draft && draft.content && !draft.entryId) {
@@ -99,8 +110,12 @@ const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
                  clearDraft();
              }
         }
+        if (initialTodos) {
+            setTodos(prev => [...prev, ...initialTodos]);
+            setActiveTab('plan'); // Switch to plan tab if suggestions passed
+        }
     }
-  }, [initialEntry]);
+  }, [initialEntry, initialTodos]);
 
   // Auto-save logic
   useEffect(() => {
@@ -319,7 +334,7 @@ const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
   };
 
   const handleSave = () => {
-    if (!content.trim() && mediaItems.length === 0) return;
+    if (!content.trim() && mediaItems.length === 0 && todos.length === 0 && schedule.length === 0) return;
     
     const entry: JournalEntry = {
       id: initialEntry?.id || generateId(),
@@ -329,6 +344,8 @@ const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
       isAnalyzed: !!analysisResult,
       media: mediaItems,
       reflection: reflection,
+      todos,
+      schedule,
       ...analysisResult
     };
 
@@ -342,6 +359,8 @@ const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
         setLoadedMediaUrls({});
         setReflection(undefined);
         setLoadedReflectionUrl(null);
+        setTodos([]);
+        setSchedule([]);
     }
   };
 
@@ -396,6 +415,34 @@ const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
       return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // --- Planner Handlers ---
+  const addTodo = () => {
+    if (!newTodo.trim()) return;
+    setTodos(prev => [...prev, { id: uuidv4(), text: newTodo, isCompleted: false }]);
+    setNewTodo('');
+  };
+
+  const toggleTodo = (id: string) => {
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, isCompleted: !t.isCompleted } : t));
+  };
+
+  const removeTodo = (id: string) => {
+    setTodos(prev => prev.filter(t => t.id !== id));
+  };
+
+  const addScheduleBlock = () => {
+    if (!newScheduleActivity.trim()) return;
+    setSchedule(prev => {
+        const newBlock = { id: uuidv4(), time: newScheduleTime, activity: newScheduleActivity };
+        return [...prev, newBlock].sort((a, b) => a.time.localeCompare(b.time));
+    });
+    setNewScheduleActivity('');
+  };
+
+  const removeScheduleBlock = (id: string) => {
+    setSchedule(prev => prev.filter(s => s.id !== id));
+  };
+
   return (
     <div className="p-6 lg:p-10 h-full flex flex-col">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -411,42 +458,22 @@ const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
         </div>
         
         <div className="flex flex-wrap gap-2">
-           {/* Media Toolbar */}
-           <div className="flex bg-white border border-slate-200 rounded-lg p-1">
-               <button onClick={() => setShowDrawing(!showDrawing)} className="p-2 hover:bg-slate-50 text-slate-600 rounded relative group" title="Draw">
-                  <PenTool size={18} />
+            {/* Tab Switcher */}
+            <div className="flex bg-slate-100 p-1 rounded-lg mr-4">
+               <button 
+                  onClick={() => setActiveTab('write')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${activeTab === 'write' ? 'bg-white text-lumina-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+               >
+                   <FileText size={16} /> Write
                </button>
-               <div className="w-px bg-slate-200 mx-1"></div>
-               <button onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-slate-50 text-slate-600 rounded relative group" title="Upload Image">
-                   <Upload size={18} />
+               <button 
+                  onClick={() => setActiveTab('plan')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${activeTab === 'plan' ? 'bg-white text-lumina-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+               >
+                   <ListTodo size={16} /> Plan
                </button>
-               <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileSelect} />
-               <div className="w-px bg-slate-200 mx-1"></div>
-               <button onClick={handleGenerateImage} disabled={!!isGeneratingMedia} className="p-2 hover:bg-slate-50 text-slate-600 rounded disabled:opacity-50" title="Generate Art">
-                  {isGeneratingMedia === 'image' ? <Loader2 className="animate-spin" size={18} /> : <ImageIcon size={18} />}
-               </button>
-               <button onClick={handleGenerateVideo} disabled={!!isGeneratingMedia} className="p-2 hover:bg-slate-50 text-slate-600 rounded disabled:opacity-50" title="Generate Memory Video">
-                  {isGeneratingMedia === 'video' ? <Loader2 className="animate-spin" size={18} /> : <Video size={18} />}
-               </button>
-               <div className="w-px bg-slate-200 mx-1"></div>
-               {isRecording ? (
-                    <button onClick={stopRecording} className="p-2 bg-red-50 text-red-600 rounded flex items-center gap-2 animate-pulse">
-                        <Square size={16} fill="currentColor" />
-                        <span className="text-xs font-bold font-mono">{formatTime(recordingTime)}</span>
-                    </button>
-               ) : (
-                    <button onClick={startRecording} className="p-2 hover:bg-slate-50 text-slate-600 rounded" title="Record Audio">
-                        <Mic size={18} />
-                    </button>
-               )}
-           </div>
+            </div>
 
-           {!analysisResult && content.length > 20 && (
-             <button onClick={handleAnalyze} disabled={isAnalyzing} className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors font-medium">
-               {isAnalyzing ? <RefreshCw className="animate-spin" size={18} /> : <Wand2 size={18} />}
-               <span className="hidden sm:inline">Analyze</span>
-             </button>
-           )}
            <button onClick={handleSave} className="flex items-center gap-2 px-6 py-2 bg-lumina-600 text-white rounded-lg hover:bg-lumina-700 transition-colors font-medium shadow-sm">
              <Save size={18} />
              <span className="hidden sm:inline">Save</span>
@@ -454,183 +481,309 @@ const EntryEditor: React.FC<EntryEditorProps> = ({ onSave, initialEntry }) => {
         </div>
       </header>
 
+      {/* Main Content Area */}
       <div className="flex flex-1 gap-6 flex-col lg:flex-row min-h-0 overflow-y-auto lg:overflow-visible">
+        
+        {/* LEFT COLUMN: Content (Write or Plan) */}
         <div className="flex-1 flex flex-col gap-6">
+
+            {activeTab === 'write' ? (
+                /* --- WRITE MODE --- */
+                <>
+                    {/* Media Toolbar */}
+                    <div className="flex bg-white border border-slate-200 rounded-lg p-1 w-fit">
+                        <button onClick={() => setShowDrawing(!showDrawing)} className="p-2 hover:bg-slate-50 text-slate-600 rounded relative group" title="Draw">
+                            <PenTool size={18} />
+                        </button>
+                        <div className="w-px bg-slate-200 mx-1"></div>
+                        <button onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-slate-50 text-slate-600 rounded relative group" title="Upload Image">
+                            <Upload size={18} />
+                        </button>
+                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileSelect} />
+                        <div className="w-px bg-slate-200 mx-1"></div>
+                        <button onClick={handleGenerateImage} disabled={!!isGeneratingMedia} className="p-2 hover:bg-slate-50 text-slate-600 rounded disabled:opacity-50" title="Generate Art">
+                            {isGeneratingMedia === 'image' ? <Loader2 className="animate-spin" size={18} /> : <ImageIcon size={18} />}
+                        </button>
+                        <button onClick={handleGenerateVideo} disabled={!!isGeneratingMedia} className="p-2 hover:bg-slate-50 text-slate-600 rounded disabled:opacity-50" title="Generate Memory Video">
+                            {isGeneratingMedia === 'video' ? <Loader2 className="animate-spin" size={18} /> : <Video size={18} />}
+                        </button>
+                        <div className="w-px bg-slate-200 mx-1"></div>
+                        {isRecording ? (
+                                <button onClick={stopRecording} className="p-2 bg-red-50 text-red-600 rounded flex items-center gap-2 animate-pulse">
+                                    <Square size={16} fill="currentColor" />
+                                    <span className="text-xs font-bold font-mono">{formatTime(recordingTime)}</span>
+                                </button>
+                        ) : (
+                                <button onClick={startRecording} className="p-2 hover:bg-slate-50 text-slate-600 rounded" title="Record Audio">
+                                    <Mic size={18} />
+                                </button>
+                        )}
+                        <div className="w-px bg-slate-200 mx-1"></div>
+                         {!analysisResult && content.length > 20 && (
+                            <button onClick={handleAnalyze} disabled={isAnalyzing} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded" title="Analyze Text">
+                                {isAnalyzing ? <RefreshCw className="animate-spin" size={18} /> : <Wand2 size={18} />}
+                            </button>
+                         )}
+                    </div>
             
-            {/* Positive Reflection Card (Top if exists) */}
-            {(reflection || initialEntry) && (
-                <div className="animate-fade-in-down">
-                    {!reflection ? (
-                         // Show generation button if saved but no reflection yet
-                         (initialEntry || saveStatus === 'saved') && content.length > 50 && (
-                             <div className="bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-xl p-1 shadow-md">
-                                 <div className="bg-white rounded-lg p-4 flex items-center justify-between">
-                                     <div className="flex items-center gap-3">
-                                         <div className="p-2 bg-violet-100 rounded-full text-violet-600">
-                                            <Sparkles size={20} />
-                                         </div>
-                                         <div>
-                                            <h3 className="font-bold text-slate-800">Positive Reflection</h3>
-                                            <p className="text-sm text-slate-500">Visualize the hope and positivity in your day.</p>
-                                         </div>
-                                     </div>
-                                     <button 
-                                        onClick={handleGenerateReflection}
-                                        disabled={!!isGeneratingMedia}
-                                        className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium flex items-center gap-2"
-                                     >
-                                        {isGeneratingMedia === 'reflection' ? <Loader2 className="animate-spin" size={16}/> : <Wand2 size={16}/>}
-                                        Reflect & Visualize
-                                     </button>
-                                 </div>
-                             </div>
-                         )
-                    ) : (
-                         // Show actual reflection
-                         <div className="relative rounded-2xl overflow-hidden shadow-lg group">
-                             <div className="absolute inset-0 bg-slate-900/40 z-10 group-hover:bg-slate-900/30 transition-colors"></div>
-                             {loadedReflectionUrl && <img src={loadedReflectionUrl} alt="Positive Reflection" className="w-full h-64 md:h-80 object-cover" />}
-                             <div className="absolute bottom-0 left-0 right-0 p-6 z-20 bg-gradient-to-t from-slate-900/90 to-transparent">
-                                 <div className="flex items-center gap-2 text-yellow-300 mb-2 font-medium text-xs uppercase tracking-wider">
-                                     <Sparkles size={14} />
-                                     <span>Daily Wisdom</span>
-                                 </div>
-                                 <p className="text-white font-serif text-xl md:text-2xl italic leading-relaxed">
-                                     "{reflection.quote}"
-                                 </p>
-                             </div>
-                         </div>
-                    )}
-                </div>
-            )}
-
-            {/* Drawing Area */}
-            {showDrawing && (
-                <div className="animate-fade-in-down">
-                    <DrawingCanvas onSave={handleDrawingSave} onCancel={() => setShowDrawing(false)} />
-                </div>
-            )}
-
-            {/* Media Gallery */}
-            {mediaItems.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {mediaItems.map(item => (
-                        <div key={item.id} className={`relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-100 ${item.type === 'audio' ? 'h-24' : 'aspect-square'}`}>
-                            
-                            {/* Content Rendering Logic */}
-                            {item.externalUrl ? (
-                                // YouTube / External Embed
-                                <div className="w-full h-full bg-black relative">
-                                    <iframe 
-                                        src={item.externalUrl} 
-                                        className="w-full h-full" 
-                                        title="YouTube video player" 
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                                        allowFullScreen
-                                    ></iframe>
-                                </div>
-                            ) : loadedMediaUrls[item.id] ? (
-                                item.type === 'video' ? (
-                                    <div className="relative w-full h-full">
-                                        <video src={loadedMediaUrls[item.id]} className="w-full h-full object-cover" controls />
-                                        
-                                        {/* YouTube Workflow Overlay */}
-                                        <div className="absolute top-2 right-2 flex gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                                             <button onClick={() => openYouTubeUpload(loadedMediaUrls[item.id])} className="p-1.5 bg-red-600 text-white rounded-full shadow hover:bg-red-700" title="Upload to YouTube">
-                                                 <Youtube size={14} />
-                                             </button>
-                                             <button onClick={() => setShowLinkInput(item.id)} className="p-1.5 bg-white text-slate-700 rounded-full shadow hover:bg-slate-100" title="Paste YouTube Link">
-                                                 <Link2 size={14} />
-                                             </button>
-                                        </div>
-
-                                        {/* Input field for YouTube link */}
-                                        {showLinkInput === item.id && (
-                                            <div className="absolute inset-0 bg-slate-900/90 z-30 flex flex-col items-center justify-center p-4 text-center animate-fade-in">
-                                                <h4 className="text-white text-sm font-bold mb-2">Save Space with YouTube</h4>
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="Paste YouTube Link..." 
-                                                    value={linkInputValue}
-                                                    onChange={e => setLinkInputValue(e.target.value)}
-                                                    className="w-full text-sm p-2 rounded mb-2"
-                                                />
-                                                <div className="flex gap-2">
-                                                    <button onClick={() => saveYouTubeLink(item.id)} className="bg-lumina-500 text-white text-xs px-3 py-1.5 rounded font-bold">Save Link</button>
-                                                    <button onClick={() => setShowLinkInput(null)} className="text-slate-400 text-xs px-2">Cancel</button>
+                    {/* Positive Reflection Card (Top if exists) */}
+                    {(reflection || initialEntry) && (
+                        <div className="animate-fade-in-down">
+                            {!reflection ? (
+                                // Show generation button if saved but no reflection yet
+                                (initialEntry || saveStatus === 'saved') && content.length > 50 && (
+                                    <div className="bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-xl p-1 shadow-md">
+                                        <div className="bg-white rounded-lg p-4 flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-violet-100 rounded-full text-violet-600">
+                                                    <Sparkles size={20} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-slate-800">Positive Reflection</h3>
+                                                    <p className="text-sm text-slate-500">Visualize the hope and positivity in your day.</p>
                                                 </div>
                                             </div>
-                                        )}
-                                    </div>
-                                ) : item.type === 'audio' ? (
-                                    <div className="w-full h-full flex flex-col justify-center px-3 bg-white">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <div className="p-1.5 bg-indigo-100 text-indigo-600 rounded-full">
-                                                <Music size={14} />
-                                            </div>
-                                            <span className="text-xs font-bold text-slate-500 uppercase">Voice Note</span>
+                                            <button 
+                                                onClick={handleGenerateReflection}
+                                                disabled={!!isGeneratingMedia}
+                                                className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium flex items-center gap-2"
+                                            >
+                                                {isGeneratingMedia === 'reflection' ? <Loader2 className="animate-spin" size={16}/> : <Wand2 size={16}/>}
+                                                Reflect & Visualize
+                                            </button>
                                         </div>
-                                        <audio src={loadedMediaUrls[item.id]} controls className="w-full h-8" />
-                                        <button 
-                                            onClick={() => handleTranscribe(item.id)}
-                                            disabled={!!transcribingId}
-                                            className="absolute top-2 right-2 p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded text-xs font-medium flex items-center gap-1"
-                                            title="Transcribe to text"
-                                        >
-                                            {transcribingId === item.id ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
-                                            <span className="hidden md:inline">Transcribe</span>
-                                        </button>
                                     </div>
-                                ) : (
-                                    <img src={loadedMediaUrls[item.id]} alt="Journal Media" className="w-full h-full object-cover" />
                                 )
                             ) : (
-                                <div className="flex items-center justify-center h-full text-slate-400"><Loader2 className="animate-spin" /></div>
-                            )}
-
-                            {/* Delete Button */}
-                            <button onClick={() => deleteMedia(item.id)} className="absolute top-2 left-2 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                                <Trash2 size={14} />
-                            </button>
-
-                            {/* Label */}
-                            {item.type !== 'audio' && (
-                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2 pointer-events-none">
-                                    <span className="text-white text-xs font-medium uppercase tracking-wider flex items-center gap-1">
-                                        {item.type === 'drawing' ? <PenTool size={10}/> : item.type === 'video' ? <Video size={10}/> : <Sparkles size={10}/>}
-                                        {item.externalUrl ? 'YouTube' : item.type}
-                                    </span>
+                                // Show actual reflection
+                                <div className="relative rounded-2xl overflow-hidden shadow-lg group">
+                                    <div className="absolute inset-0 bg-slate-900/40 z-10 group-hover:bg-slate-900/30 transition-colors"></div>
+                                    {loadedReflectionUrl && <img src={loadedReflectionUrl} alt="Positive Reflection" className="w-full h-64 md:h-80 object-cover" />}
+                                    <div className="absolute bottom-0 left-0 right-0 p-6 z-20 bg-gradient-to-t from-slate-900/90 to-transparent">
+                                        <div className="flex items-center gap-2 text-yellow-300 mb-2 font-medium text-xs uppercase tracking-wider">
+                                            <Sparkles size={14} />
+                                            <span>Daily Wisdom</span>
+                                        </div>
+                                        <p className="text-white font-serif text-xl md:text-2xl italic leading-relaxed">
+                                            "{reflection.quote}"
+                                        </p>
+                                    </div>
                                 </div>
                             )}
                         </div>
-                    ))}
+                    )}
+
+                    {/* Drawing Area */}
+                    {showDrawing && (
+                        <div className="animate-fade-in-down">
+                            <DrawingCanvas onSave={handleDrawingSave} onCancel={() => setShowDrawing(false)} />
+                        </div>
+                    )}
+
+                    {/* Media Gallery */}
+                    {mediaItems.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            {mediaItems.map(item => (
+                                <div key={item.id} className={`relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-100 ${item.type === 'audio' ? 'h-24' : 'aspect-square'}`}>
+                                    {/* ... Media Rendering Code (Same as previous) ... */}
+                                     {/* Content Rendering Logic */}
+                                    {item.externalUrl ? (
+                                        <div className="w-full h-full bg-black relative">
+                                            <iframe 
+                                                src={item.externalUrl} 
+                                                className="w-full h-full" 
+                                                title="YouTube video player" 
+                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                                allowFullScreen
+                                            ></iframe>
+                                        </div>
+                                    ) : loadedMediaUrls[item.id] ? (
+                                        item.type === 'video' ? (
+                                            <div className="relative w-full h-full">
+                                                <video src={loadedMediaUrls[item.id]} className="w-full h-full object-cover" controls />
+                                                <div className="absolute top-2 right-2 flex gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => openYouTubeUpload(loadedMediaUrls[item.id])} className="p-1.5 bg-red-600 text-white rounded-full shadow hover:bg-red-700" title="Upload to YouTube">
+                                                        <Youtube size={14} />
+                                                    </button>
+                                                    <button onClick={() => setShowLinkInput(item.id)} className="p-1.5 bg-white text-slate-700 rounded-full shadow hover:bg-slate-100" title="Paste YouTube Link">
+                                                        <Link2 size={14} />
+                                                    </button>
+                                                </div>
+                                                {showLinkInput === item.id && (
+                                                    <div className="absolute inset-0 bg-slate-900/90 z-30 flex flex-col items-center justify-center p-4 text-center animate-fade-in">
+                                                        <h4 className="text-white text-sm font-bold mb-2">Save Space with YouTube</h4>
+                                                        <input 
+                                                            type="text" 
+                                                            placeholder="Paste YouTube Link..." 
+                                                            value={linkInputValue}
+                                                            onChange={e => setLinkInputValue(e.target.value)}
+                                                            className="w-full text-sm p-2 rounded mb-2"
+                                                        />
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => saveYouTubeLink(item.id)} className="bg-lumina-500 text-white text-xs px-3 py-1.5 rounded font-bold">Save Link</button>
+                                                            <button onClick={() => setShowLinkInput(null)} className="text-slate-400 text-xs px-2">Cancel</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : item.type === 'audio' ? (
+                                            <div className="w-full h-full flex flex-col justify-center px-3 bg-white">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className="p-1.5 bg-indigo-100 text-indigo-600 rounded-full">
+                                                        <Music size={14} />
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-500 uppercase">Voice Note</span>
+                                                </div>
+                                                <audio src={loadedMediaUrls[item.id]} controls className="w-full h-8" />
+                                                <button 
+                                                    onClick={() => handleTranscribe(item.id)}
+                                                    disabled={!!transcribingId}
+                                                    className="absolute top-2 right-2 p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded text-xs font-medium flex items-center gap-1"
+                                                    title="Transcribe to text"
+                                                >
+                                                    {transcribingId === item.id ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+                                                    <span className="hidden md:inline">Transcribe</span>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <img src={loadedMediaUrls[item.id]} alt="Journal Media" className="w-full h-full object-cover" />
+                                        )
+                                    ) : (
+                                        <div className="flex items-center justify-center h-full text-slate-400"><Loader2 className="animate-spin" /></div>
+                                    )}
+
+                                    <button onClick={() => deleteMedia(item.id)} className="absolute top-2 left-2 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Main Text Editor */}
+                    <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col relative group min-h-[300px]">
+                        {!content && (
+                            <div className="absolute top-4 right-4 z-10">
+                                <button onClick={handleInspireMe} className="flex items-center gap-2 text-xs font-medium text-lumina-600 bg-lumina-50 px-3 py-1.5 rounded-full hover:bg-lumina-100 transition-colors">
+                                    <Lightbulb size={14} /> Inspire Me
+                                </button>
+                            </div>
+                        )}
+                        <textarea
+                            className="w-full h-full p-8 resize-none focus:outline-none text-lg text-slate-700 leading-relaxed journal-font placeholder-slate-300 rounded-2xl"
+                            placeholder="What's on your mind today? Let it flow..."
+                            value={content}
+                            onChange={(e) => setContent(e.target.value)}
+                        />
+                        <div className="absolute bottom-4 right-4 text-xs text-slate-300 group-hover:text-slate-400 transition-colors">
+                            {content.length} chars
+                        </div>
+                    </div>
+                </>
+            ) : (
+                /* --- PLAN MODE --- */
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
+                    {/* Todo List Card */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                        <div className="flex items-center gap-2 mb-4 text-slate-700">
+                             <ListTodo className="text-lumina-500" />
+                             <h3 className="font-bold text-lg">Checklist</h3>
+                        </div>
+                        
+                        <div className="flex gap-2 mb-4">
+                            <input 
+                                type="text" 
+                                value={newTodo}
+                                onChange={(e) => setNewTodo(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && addTodo()}
+                                placeholder="Add a new task..."
+                                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lumina-500"
+                            />
+                            <button onClick={addTodo} className="p-2 bg-lumina-500 text-white rounded-lg hover:bg-lumina-600">
+                                <Plus size={18} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                             {todos.length === 0 ? (
+                                 <p className="text-slate-400 text-sm italic text-center py-4">No tasks yet. Stay organized!</p>
+                             ) : (
+                                 todos.map(todo => (
+                                     <div key={todo.id} className="flex items-center gap-3 group">
+                                         <button 
+                                            onClick={() => toggleTodo(todo.id)}
+                                            className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${todo.isCompleted ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-lumina-500'}`}
+                                         >
+                                             {todo.isCompleted && <CheckCircle2 size={14} />}
+                                         </button>
+                                         <span className={`flex-1 text-sm ${todo.isCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                                             {todo.text}
+                                         </span>
+                                         <button onClick={() => removeTodo(todo.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                             <X size={14} />
+                                         </button>
+                                     </div>
+                                 ))
+                             )}
+                        </div>
+                    </div>
+
+                    {/* Hourly Schedule Card */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                        <div className="flex items-center gap-2 mb-4 text-slate-700">
+                             <CalendarClock className="text-indigo-500" />
+                             <h3 className="font-bold text-lg">Hourly Schedule</h3>
+                        </div>
+
+                        <div className="flex gap-2 mb-4">
+                            <input 
+                                type="time"
+                                step="1800" // 30 min steps
+                                value={newScheduleTime}
+                                onChange={(e) => setNewScheduleTime(e.target.value)}
+                                className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <input 
+                                type="text"
+                                value={newScheduleActivity}
+                                onChange={(e) => setNewScheduleActivity(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && addScheduleBlock()}
+                                placeholder="Activity..."
+                                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <button onClick={addScheduleBlock} className="p-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600">
+                                <Plus size={18} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                             {schedule.length === 0 ? (
+                                 <p className="text-slate-400 text-sm italic text-center py-4">Plan your day in 30min blocks.</p>
+                             ) : (
+                                 schedule.map(block => (
+                                     <div key={block.id} className="flex items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 group">
+                                         <span className="font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                                             {block.time}
+                                         </span>
+                                         <span className="flex-1 text-sm text-slate-700 truncate">
+                                             {block.activity}
+                                         </span>
+                                         <button onClick={() => removeScheduleBlock(block.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                             <X size={14} />
+                                         </button>
+                                     </div>
+                                 ))
+                             )}
+                        </div>
+                    </div>
                 </div>
             )}
-
-            {/* Main Text Editor */}
-            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col relative group min-h-[300px]">
-                {!content && (
-                    <div className="absolute top-4 right-4 z-10">
-                        <button onClick={handleInspireMe} className="flex items-center gap-2 text-xs font-medium text-lumina-600 bg-lumina-50 px-3 py-1.5 rounded-full hover:bg-lumina-100 transition-colors">
-                            <Lightbulb size={14} /> Inspire Me
-                        </button>
-                    </div>
-                )}
-                <textarea
-                    className="w-full h-full p-8 resize-none focus:outline-none text-lg text-slate-700 leading-relaxed journal-font placeholder-slate-300 rounded-2xl"
-                    placeholder="What's on your mind today? Let it flow..."
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                />
-                <div className="absolute bottom-4 right-4 text-xs text-slate-300 group-hover:text-slate-400 transition-colors">
-                    {content.length} chars
-                </div>
-            </div>
         </div>
 
-        {/* AI Sidebar */}
-        {analysisResult && (
+        {/* AI Sidebar (Only in Write Mode or if analysis exists) */}
+        {activeTab === 'write' && analysisResult && (
            <div className="w-full lg:w-80 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-y-auto h-fit animate-fade-in-up">
+              {/* ... AI Insights sidebar content same as before ... */}
               <div className="p-6 space-y-6">
                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                     <h3 className="font-semibold text-slate-700 flex items-center gap-2">

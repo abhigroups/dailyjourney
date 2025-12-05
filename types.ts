@@ -25,6 +25,22 @@ export interface JournalEntry {
 
   // Media
   media?: JournalMedia[];
+
+  // Planner Features
+  todos?: TodoItem[];
+  schedule?: ScheduleBlock[];
+}
+
+export interface TodoItem {
+  id: string;
+  text: string;
+  isCompleted: boolean;
+}
+
+export interface ScheduleBlock {
+  id: string;
+  time: string; // "08:00"
+  activity: string;
 }
 
 export interface JournalMedia {
@@ -43,6 +59,15 @@ export interface PatternAnalysis {
   habitInsight: string;
   improvementSuggestion: string;
   overallVibe: string;
+}
+
+export interface DailyGuidance {
+  timestamp: string;
+  focusArea: string;
+  todoSuggestions: string[];
+  improvementTips: string[];
+  positiveReflection: string;
+  reasoning: string; // Why these suggestions were made based on past entries
 }
 
 export interface LifeJourneyAnalysis {
@@ -74,6 +99,7 @@ export enum ViewMode {
   WRITE = 'WRITE',
   LIST = 'LIST',
   ANALYTICS = 'ANALYTICS',
+  GUIDANCE = 'GUIDANCE',
   SETTINGS = 'SETTINGS'
 }
 

@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { JournalEntry } from '../types';
-import { Search, Smile, Trash2, Edit3, ChevronDown, Sparkles, Tag, Zap } from 'lucide-react';
+import { Search, Smile, Trash2, Edit3, ChevronDown, Sparkles, Tag, Zap, ListTodo, Check, CalendarClock } from 'lucide-react';
 
 interface EntryListProps {
   entries: JournalEntry[];
@@ -190,7 +190,7 @@ const EntryList: React.FC<EntryListProps> = ({ entries, onEdit, onDelete }) => {
                               )}
                               
                               <div className="flex justify-between items-start pl-2">
-                                 <div>
+                                 <div className="w-full">
                                     <div className="flex items-center gap-2 mb-2">
                                         {entry.moodEmoji && <span className="text-2xl">{entry.moodEmoji}</span>}
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -209,7 +209,7 @@ const EntryList: React.FC<EntryListProps> = ({ entries, onEdit, onDelete }) => {
                                        {entry.content}
                                     </p>
                                  </div>
-                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute top-4 right-4 bg-white/80 p-1 rounded-lg">
                                     <button onClick={(e) => { e.stopPropagation(); onEdit(entry); }} className="p-2 text-slate-400 hover:text-lumina-600 hover:bg-lumina-50 rounded-lg">
                                        <Edit3 size={16} />
                                     </button>
@@ -237,6 +237,58 @@ const EntryList: React.FC<EntryListProps> = ({ entries, onEdit, onDelete }) => {
                                        </div>
                                     ))}
                                  </div>
+                              )}
+
+                              {/* Daily Plan Section */}
+                              {((entry.todos && entry.todos.length > 0) || (entry.schedule && entry.schedule.length > 0)) && (
+                                <div className="mt-4 pt-4 border-t border-slate-100 bg-slate-50/80 -mx-5 -mb-5 px-5 py-4">
+                                   <div className="flex items-center gap-2 mb-3">
+                                       <div className="p-1 bg-lumina-100 text-lumina-600 rounded">
+                                           <ListTodo size={14} />
+                                       </div>
+                                       <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Daily Plan & Tasks</h4>
+                                   </div>
+                                   
+                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                     {/* Todos */}
+                                     {entry.todos && entry.todos.length > 0 && (
+                                       <div className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
+                                          <h5 className="text-[10px] font-bold text-slate-400 mb-2 uppercase flex items-center gap-1">
+                                              <Check size={10} /> To-Do List
+                                          </h5>
+                                          <ul className="space-y-2">
+                                            {entry.todos.map(t => (
+                                              <li key={t.id} className="flex items-start gap-2.5 text-sm text-slate-700">
+                                                <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 ${t.isCompleted ? 'bg-green-500 border-green-500' : 'border-slate-300 bg-slate-50'}`}>
+                                                   {t.isCompleted && <Check size={10} className="text-white" />}
+                                                </div>
+                                                <span className={`leading-tight ${t.isCompleted ? 'line-through text-slate-400 decoration-slate-300' : ''}`}>{t.text}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                       </div>
+                                     )}
+
+                                     {/* Schedule */}
+                                     {entry.schedule && entry.schedule.length > 0 && (
+                                       <div className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
+                                          <h5 className="text-[10px] font-bold text-slate-400 mb-2 uppercase flex items-center gap-1">
+                                              <CalendarClock size={10} /> Schedule
+                                          </h5>
+                                          <ul className="space-y-2">
+                                            {entry.schedule.map(s => (
+                                              <li key={s.id} className="flex items-center gap-3 text-sm text-slate-700">
+                                                <span className="font-mono text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded shrink-0">
+                                                    {s.time}
+                                                </span>
+                                                <span className="truncate leading-tight">{s.activity}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                       </div>
+                                     )}
+                                   </div>
+                                </div>
                               )}
                            </div>
                         ))}
