@@ -1,0 +1,7 @@
+{
+  "name": "Your Digital Journal",
+  "description": "A smart, AI-powered daily journal that helps you reflect, track patterns, and gain insights into your life using Gemini.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
